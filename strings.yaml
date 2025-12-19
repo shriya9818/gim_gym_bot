@@ -1,0 +1,105 @@
+messages:
+  non_official_chat: "This bot only accepts commands from the official Health Club GIM group. Please join the official group or contact Health Club GIM to gain access to the bot."
+  admin_chat_only: "This bot only accepts admin commands from the official Health Club Admin group. Please contact Health Club GIM to get access."
+  unauthorized: "You are not registered. Please use /start to begin the registration process."
+  welcome: "Welcome to the College Gym Bot. Use /help to see commands."
+  help: |
+    /reserve  - Reserve a slot now
+    /checkin  - Check-in to start your session
+    /checkout - Finish your session
+    /cancel   - Cancel reservation
+    /status   - Show occupancy and your status
+    /expiring - List upcoming session expirations
+  admin_help: |
+    /summary  - Show summary of all active sessions
+    /lock     - Lock reservations (Require comment)
+    /unlock   - Unlock reservations
+    /admins   - List admins
+    /promote  - Promote member as admin
+    /demote   - Demotes a member as admin
+    /kick     - Kick a user
+    /block    - Block user (requires comment)
+    /unblock  - Unblock user
+    /user     - Show user stats
+  admin_permission: "You don't have permission to use this command."
+  start_intro: "Hey! I'm the GIM Gym Bot. I manage walk-in reservations and check-ins for the gym."
+  start_registered: "Status: Registered ✅\nName: {name}\nRoll: {roll}\nUse /help to know all possible commands."
+  start_pending: "Status: Pending Review ⏳\nWe've received your request. Please wait up to 24 hours for admins to approve it."
+  start_not_registered: "Status: Not Registered ❌\nUse /join here in this chat to submit your details and request access."
+  invite_registered: "You're already registered. Here's a fresh invite link:"
+  invite_pending: "Your request is still pending. Please wait for an admin to review it."
+
+reserve:
+  blocked: "You are temporarily blocked from booking for {duration}."
+  unauthorized: "You are not authorized. Please contact Health Club GIM."
+  active_exists: "You already have an active reservation. Status: {state}."
+  capacity_full: "Gym is at capacity right now. Try again later."
+  success: "Reservation created. Please /checkin within {minutes} minutes."
+
+cancel:
+  no_reservation: "You don't have a reservation to cancel."
+  no_active: "No active reservation to cancel."
+  success: "Your reservation was cancelled."
+
+checkin:
+  no_reservation: "You don't have a reservation. Use /reserve first."
+  no_active: "No active reservation to check in."
+  expired: "Your reservation has expired. Please /reserve again if space is available."
+  capacity_full: "Gym is at capacity; cannot check in now."
+  success: "Checked in successfully. Auto-checkout in {minutes} minutes. Use /checkout when done."
+
+checkout:
+  no_reservation: "No active session found."
+  not_checked_in: "You are not checked in."
+  success: "Checked out successfully. Thank you!"
+
+status:
+  blocked: "You are blocked for {duration}."
+  locked_prefix: "Reservations locked: {reason}"
+
+admin:
+  invite_usage: "Usage: /invite <ROLL_NUMBER> (mention the student exactly once)"
+  invite_missing_tag: "Mention the student you want to invite so their profile can be read."
+  invite_roll_required: "Roll number is required."
+  invite_tag_mismatch: "The mentioned user must be the only argument after the roll number."
+  invite_exists: "A user with that roll number already exists."
+  invite_success: "{name} (roll {roll_number}) has been invited and can now use the bot."
+  user_usage: "Usage: /user <telegram_id|@username>"
+  force_checkout_usage: "Usage: /force_checkout <telegram_id|@username>"
+  block_usage: "Usage: /block <telegram_id|@username> <duration e.g. 2d or 12h>"
+  unblock_usage: "Usage: /unblock <telegram_id|@username>"
+  promote_usage: "Usage: /promote_admin <telegram_id|@username>"
+  revoke_usage: "Usage: /revoke_admin <telegram_id|@username>"
+
+errors:
+  invalid_duration: "Invalid duration. Use formats like 2d, 12h, 90m or combinations."
+  invalid_identifier: "User not found."
+
+join:
+  dm_required: "Please complete /join in the bot's private chat: @gim_gym_bot"
+  already_pending: "You already have a pending request. Please wait for an admin response."
+  already_approved: "You are already approved. Use /invite to get a fresh invite link."
+  ask_name: "Please enter your full name:"
+  invalid_name: "Full name must be at least 5 characters. Please try again."
+  ask_roll: "Enter your roll number (e.g., B123456):"
+  invalid_roll: "Roll number must be alphanumeric (3-15 chars). Please try again."
+  ask_phone: "Enter your 10-digit phone number:"
+  invalid_phone: "Phone number must be exactly 10 digits. Please try again."
+  submitted: "Your request has been submitted. You'll be notified once an admin reviews it."
+  admin_message: |
+    New join request:
+    • Name: {name}
+    • Roll: {roll}
+    • Phone: {phone}
+    • Telegram: @{username} (ID {user_id})
+  admin_button_approve: "Approve"
+  admin_button_decline: "Decline"
+  invalid_request: "Invalid join request."
+  already_processed: "This request has already been processed."
+  roll_exists: "This roll number is already registered. Please contact the Health Club team."
+  decision_user_approved: "Your join request has been approved. Check your messages for the invite link."
+  decision_user_declined: "Your join request has been declined. Please contact the Health Club team for details."
+  decision_user_expired: "Your join request expired. Please submit /join again."
+  decision_admin_text: "Decision: {status} by {actor}"
+  missing_link_permission: "Unable to generate invite link. Please contact an admin."
+  invite_link_message: "Use this link to join the gym group (expires in 24h): {link}"
