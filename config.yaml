@@ -1,0 +1,21 @@
+# Admin and group IDs (use integer chat IDs, not @usernames)
+admin_group_id: -5079458315
+gym_group_id: -1003430378434
+
+# Domain constants
+capacity: 18
+reserve_window_minutes: 15
+session_duration_minutes: 120
+
+timezone: Asia/Kolkata
+
+# Optional: path to the database (overridden by DATABASE_URL env if provided)
+database_path: sqlite:///./gym_bot.db
+
+# Optional: logging level
+log_level: DEBUG
+
+# Ultimate super users (telegram numeric IDs). These users are always admins and cannot be revoked.
+super_users: [
+  269145190
+]
