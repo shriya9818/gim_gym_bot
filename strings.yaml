@@ -4,7 +4,6 @@ messages:
   admin_chat_only: >
     This bot only accepts admin commands from the official Health Club Admin group. Please contact Health Club GIM to get access.
   unauthorized: You are not registered. Please use /start to begin the registration process.
-  welcome: Welcome to the College Gym Bot. Use /help to see commands.
   help: |
     /reserve  - Reserve a slot now
     /checkin  - Check-in to start your session
@@ -34,11 +33,9 @@ messages:
   start_not_registered: >
     Status: Not Registered ❌
     Use /join here in this chat to submit your details and request access.
-  invite_pending: Your request is still pending. Please wait for an admin to review it.
 
 reserve:
   blocked: "You are temporarily blocked from booking for {duration}."
-  unauthorized: You are not authorized. Please contact Health Club GIM.
   active_exists: "You already have an active reservation. Status: {state}."
   capacity_full: Gym is at capacity right now. Try again later.
   success: "Reservation created. Please /checkin within {minutes} minutes."
@@ -52,7 +49,6 @@ checkin:
   no_reservation: You don't have a reservation. Use /reserve first.
   no_active: No active reservation to check in.
   expired: Your reservation has expired. Please /reserve again if space is available.
-  capacity_full: Gym is at capacity; cannot check in now.
   success: "Checked in successfully. Auto-checkout in {minutes} minutes. Use /checkout when done."
 
 checkout:
@@ -63,20 +59,6 @@ checkout:
 status:
   blocked: "You are blocked for {duration}."
   locked_prefix: "Reservations locked: {reason}"
-
-admin:
-  invite_usage: "Usage: /invite <ROLL_NUMBER> (mention the student exactly once)"
-  invite_missing_tag: Mention the student you want to invite so their profile can be read.
-  invite_roll_required: Roll number is required.
-  invite_tag_mismatch: The mentioned user must be the only argument after the roll number.
-  invite_exists: A user with that roll number already exists.
-  invite_success: "{name} (roll {roll_number}) has been invited and can now use the bot."
-  user_usage: "Usage: /user <telegram_id|@username>"
-  force_checkout_usage: "Usage: /force_checkout <telegram_id|@username>"
-  block_usage: "Usage: /block <telegram_id|@username> <duration e.g. 2d or 12h>"
-  unblock_usage: "Usage: /unblock <telegram_id|@username>"
-  promote_usage: "Usage: /promote_admin <telegram_id|@username>"
-  revoke_usage: "Usage: /revoke_admin <telegram_id|@username>"
 
 lock:
   reason_short: "Lock reason: '{reason}' must be at least 5 characters."
@@ -92,7 +74,6 @@ promote:
   demote_success: User has been demoted from admin.
 
 errors:
-  invalid_duration: Invalid duration. Use formats like 2d, 12h, 90m or combinations.
   invalid_identifier: User not found by roll number or phone number.
   too_short_identifier: Identifier must be at least 5 characters long.
   private_only: This command can only be used in private chat with the bot at @gim_gym_bot"
