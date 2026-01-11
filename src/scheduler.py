@@ -1,44 +1,76 @@
-from datetime import datetime
+import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from loguru import logger
 
-from .config import CONFIG
-from .db import SessionLocal
-from .enums import ReservationState
-from .logger import logger
-from .storage import find_expired_reservations, find_overdue_checkins
+import src.db as db
+import src.enums as enums
+import src.utils as utils
+from src.config import CONFIG
 
 sched = BackgroundScheduler(timezone=CONFIG.timezone)
 
 
-def _expire_reservations():
-    now = datetime.utcnow()
-    with SessionLocal() as db:
-        expired = find_expired_reservations(db, now)
-        logger.debug("expire_reservations job running", found=len(expired), time=now)
-        for s in expired:
-            logger.debug("expiring reservation", session_id=s.id, user_id=s.user_id)
-            s.state = ReservationState.EXPIRED
-            s.is_no_show = True
-            db.add(s)
-        db.commit()
+def expire_reservations() -> None:
+    now = utils.utc_now()
+    cutoff_time = now - datetime.timedelta(minutes=CONFIG.reserve_window_minutes)
+    with db.SessionLocal() as db_session:
+        expired_reservations = (
+            db_session.query(db.Reservations)
+            .filter(
+                db.Reservations.state == enums.ReservationState.RESERVED,
+                db.Reservations.reservation_expiry_time <= cutoff_time,
+            )
+            .all()
+        )
+        if expired_reservations:
+            logger.info(
+                "Found {count} reservations to expire", count=len(expired_reservations)
+            )
+
+        for reservation in expired_reservations:
+            reservation.state = enums.ReservationState.EXPIRED
+            reservation.is_no_show = True
+            db_session.add(reservation)
+            logger.debug(
+                "Expiring Reservation for user: {full_name}, reserved at {reserved_at}",
+                full_name=reservation.user.full_name,
+                reserved_at=reservation.reservation_expiry_time,
+            )
+
+        db_session.commit()
 
 
-def _auto_checkout():
-    now = datetime.utcnow()
-    with SessionLocal() as db:
-        overdue = find_overdue_checkins(db, now)
-        logger.debug("auto_checkout job running", found=len(overdue), time=now)
-        for s in overdue:
-            logger.debug("auto-checkout session", session_id=s.id, user_id=s.user_id)
-            s.state = ReservationState.CHECKED_OUT
-            s.did_overstay = True
-            s.checkout_time = now
-            db.add(s)
-        db.commit()
+def expire_overdue_checkins():
+    now = utils.utc_now()
+    cutoff_time = now - datetime.timedelta(minutes=CONFIG.session_duration_minutes)
+    with db.SessionLocal() as db_session:
+        overdue_checkins = (
+            db_session.query(db.Reservations)
+            .filter(
+                db.Reservations.state == enums.ReservationState.CHECKED_IN,
+                db.Reservations.max_checkout_time <= cutoff_time,
+            )
+            .all()
+        )
+        if overdue_checkins:
+            logger.info("Found {count} overdue check-ins", count=len(overdue_checkins))
+
+        for reservation in overdue_checkins:
+            reservation.state = enums.ReservationState.EXPIRED
+            db_session.add(reservation)
+            logger.debug(
+                "Overdue Reservation for user: {full_name}, checked in at {checkin_time}",
+                full_name=reservation.user.full_name,
+                checkin_time=reservation.checkin_time,
+            )
+
+        db_session.commit()
 
 
 def start():
-    sched.add_job(_expire_reservations, "interval", minutes=1, id="expire_reservations")
-    sched.add_job(_auto_checkout, "interval", minutes=1, id="auto_checkout")
+    sched.add_job(expire_reservations, "interval", minutes=1, id="expire_reservations")
+    sched.add_job(
+        expire_overdue_checkins, "interval", minutes=1, id="expire_overdue_checkins"
+    )
     sched.start()

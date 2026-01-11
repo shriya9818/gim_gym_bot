@@ -184,6 +184,18 @@ async def join_collect_phone(message: types.Message, state: FSMContext):
     await send_admin_approval_request(message, inserted_id, form_data)
 
 
+def _is_user_admin(user_id: int) -> bool:
+    if utils.is_super_user(user_id):
+        return True
+    with db.SessionLocal() as db_session:
+        db_user = db_repo.get_user(
+            db_session=db_session, telegram_id=user_id, roll_number=None
+        )
+        if db_user and db_user.is_admin:
+            return True
+    return False
+
+
 @router.callback_query(F.data.startswith("join:"))
 async def join_decision(callback: types.CallbackQuery):
     assert callback.message is not None, "Callback message is None"
@@ -207,16 +219,17 @@ async def join_decision(callback: types.CallbackQuery):
     action, request_id = parts[1], int(parts[2])
     user = utils.assert_user_id(callback.from_user)
     with db.SessionLocal() as db_session:
-        db_user = db_repo.get_user(
-            db_session=db_session, telegram_id=user.id, roll_number=None
-        )
-        if not db_user:
-            await callback.answer(t("messages.unauthorized"))
-            return
+        if not utils.is_super_user(user.id):
+            db_user = db_repo.get_user(
+                db_session=db_session, telegram_id=user.id, roll_number=None
+            )
+            if not db_user:
+                await callback.answer(t("messages.unauthorized"))
+                return
 
-        if not db_user.is_admin:
-            await callback.answer(t("messages.admin_permission"), show_alert=True)
-            return
+            if not db_user.is_admin:
+                await callback.answer(t("messages.admin_permission"), show_alert=True)
+                return
 
         req = db_repo.get_join_request(
             db_session=db_session, join_request_id=request_id

@@ -1,4 +1,4 @@
-import datetime
+import typing
 
 import pydantic
 
@@ -23,3 +23,15 @@ class ReservationLockState(pydantic.BaseModel):
     is_locked: bool
     locked_by: str
     reason: str
+
+
+class CommandResult(typing.NamedTuple):
+    success: bool
+    message: str
+
+
+class UserReservationsStats(typing.NamedTuple):
+    user_id: int
+    total_reservations: int
+    no_shows: int
+    overstays: int

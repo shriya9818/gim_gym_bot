@@ -1,8 +1,7 @@
 import datetime
-import typing
 
 import sqlalchemy
-from sqlalchemy import and_, insert, select
+from sqlalchemy import insert, select
 from sqlalchemy.orm import Session, joinedload
 
 import src.db as db
@@ -21,21 +20,31 @@ def does_user_exist(*, db_session: Session, telegram_id: int) -> db.User | None:
 
 
 def get_user(
-    *, db_session: Session, telegram_id: int | None, roll_number: str | None
+    *,
+    db_session: Session,
+    telegram_id: int | None = None,
+    roll_number: str | None = None,
+    phone_number: str | None = None,
 ) -> db.User | None:
     """Return the user with the given telegram ID or roll number"""
-    if not telegram_id and not roll_number:
-        return None
-
     filters = []
     if telegram_id:
         filters.append(db.User.telegram_id == telegram_id)
     if roll_number:
         filters.append(db.User.roll_number == roll_number)
+    if phone_number:
+        filters.append(db.User.phone_number == phone_number)
 
     stmt = select(db.User).where(*filters)
     result = db_session.execute(stmt).scalar_one_or_none()
     return result
+
+
+def get_admin_users(*, db_session: Session) -> list[db.User]:
+    """Return a list of all admin users"""
+    stmt = select(db.User).where(db.User.is_admin.is_(True))
+    results = db_session.execute(stmt).scalars().all()
+    return list(results)
 
 
 def create_invited_user(
@@ -237,6 +246,31 @@ def get_user_reservation(
     return db_session.execute(stmt).scalar_one_or_none()
 
 
+def get_reservations_stats(
+    *,
+    db_session: Session,
+    user_id: int,
+) -> models.UserReservationsStats:
+    filters = []
+    if user_id is not None:
+        filters.append(db.Reservations.user_id == user_id)
+
+    stmt = select(db.Reservations.is_no_show, db.Reservations.did_overstay).where(
+        db.Reservations.user_id == user_id
+    )
+    results = db_session.execute(stmt).all()
+    total = len(results)
+    no_shows = len([r for r in results if r.is_no_show])
+    overstays = len([r for r in results if r.did_overstay])
+
+    return models.UserReservationsStats(
+        user_id=user_id,
+        total_reservations=total,
+        no_shows=no_shows,
+        overstays=overstays,
+    )
+
+
 def get_occupancy_stats(*, db_session: Session) -> tuple[int, int]:
     """Return the current occupancy and reserved counts"""
     stmt = select(db.Reservations.user_id, db.Reservations.state).where(
@@ -280,7 +314,7 @@ def get_active_reservations(*, db_session: Session) -> list[db.Reservations]:
 
 def _get_global_state(
     *, db_session: Session, key: enums.GlobalSettingKey
-) -> typing.Any | None:
+) -> str | None:
     """Return the value of the global setting with the given key"""
     stmt = select(db.BotSetting).where(db.BotSetting.key == key)
     result = db_session.execute(stmt).scalar_one_or_none()
@@ -296,3 +330,53 @@ def get_reservation_lock_state(*, db_session: Session) -> models.ReservationLock
         return models.ReservationLockState(is_locked=False, locked_by="", reason="")
 
     return models.ReservationLockState.model_validate_json(value)
+
+
+def add_reservation_lock(
+    *, db_session: Session, lock_state: models.ReservationLockState
+) -> None:
+    """Lock reservations with the given reason"""
+    value = _get_global_state(
+        db_session=db_session, key=enums.GlobalSettingKey.RESERVATION_LOCK
+    )
+    # Do insertion if not present, else update
+    if value is None:
+        stmt = insert(db.BotSetting).values(
+            key=enums.GlobalSettingKey.RESERVATION_LOCK,
+            value=lock_state.model_dump_json(),
+        )
+        db_session.execute(stmt)
+    else:
+        stmt = (
+            sqlalchemy.update(db.BotSetting)
+            .where(db.BotSetting.key == enums.GlobalSettingKey.RESERVATION_LOCK)
+            .values(value=lock_state.model_dump_json())
+        )
+        db_session.execute(stmt)
+
+
+def remove_reservation_lock(*, db_session: Session) -> None:
+    """Unlock reservations"""
+    empty_reservation = models.ReservationLockState(
+        is_locked=False, locked_by="", reason=""
+    )
+    stmt = (
+        sqlalchemy.update(db.BotSetting)
+        .where(db.BotSetting.key == enums.GlobalSettingKey.RESERVATION_LOCK)
+        .values(value=empty_reservation.model_dump_json())
+    )
+    db_session.execute(stmt)
+
+
+def promote_user(*, db_session: Session, user_id: int) -> None:
+    """Promote the user with the given ID to admin"""
+    stmt = sqlalchemy.update(db.User).where(db.User.id == user_id).values(is_admin=True)
+    db_session.execute(stmt)
+
+
+def demote_user(*, db_session: Session, user_id: int) -> None:
+    """Demote the user with the given ID from admin"""
+    stmt = (
+        sqlalchemy.update(db.User).where(db.User.id == user_id).values(is_admin=False)
+    )
+    db_session.execute(stmt)

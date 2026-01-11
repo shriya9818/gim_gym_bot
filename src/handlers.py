@@ -22,7 +22,7 @@ router.include_router(admin_router.router)
 async def cmd_start(message: types.Message):
     # Ignore non-private chats for /start
     if message.chat.type != "private":
-        return
+        return message.reply(t("errors.private_only"))
 
     user = utils.assert_user_id(message.from_user)
     logger.debug("Start command for user: {user_id} with username: {username}")

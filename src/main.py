@@ -12,6 +12,7 @@ from .scheduler import start as start_scheduler
 async def main() -> None:
     init_db()
     start_scheduler()
+
     bot = Bot(token=CONFIG.bot_token)
     dp = Dispatcher()
     dp.include_router(router)

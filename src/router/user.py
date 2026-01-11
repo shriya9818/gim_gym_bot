@@ -51,21 +51,18 @@ def user_chat_handler(
     return decorator
 
 
-def _log_command_result(
-    command: enums.UserCommands, user_id: int, ok: bool, message: str
-):
+def _log_command_result(command: enums.UserCommands, user_id: int, ok: bool):
     logger.debug(
-        "[Result for cmd: {command}, user: {user_id}] is {ok} with message: {message}",
+        "[Result for cmd: {command}, user: {user_id}] is {ok}",
         command=command,
         user_id=user_id,
         ok=ok,
-        message=message,
     )
 
 
-@router.message(Command("help"))
-@user_chat_handler("help")
-async def cmd_help(db_user: db.User, message: types.Message):
+@router.message(Command(enums.UserCommands.HELP))
+@user_chat_handler(enums.UserCommands.HELP)
+async def cmd_help(_, message: types.Message):
     await message.reply(t("messages.help"))
 
 
@@ -78,7 +75,7 @@ async def cmd_reserve(db_user: db.User, message: types.Message):
         )
         db_session.commit()
 
-    _log_command_result(enums.UserCommands.RESERVE, db_user.telegram_id, ok, txt)
+    _log_command_result(enums.UserCommands.RESERVE, db_user.telegram_id, ok)
     await message.reply(txt)
 
 
@@ -91,7 +88,7 @@ async def cmd_checkin(db_user: db.User, message: types.Message):
         )
         db_session.commit()
 
-    _log_command_result(enums.UserCommands.CHECKIN, db_user.telegram_id, ok, txt)
+    _log_command_result(enums.UserCommands.CHECKIN, db_user.telegram_id, ok)
     await message.reply(txt)
 
 
@@ -104,7 +101,7 @@ async def cmd_checkout(db_user: db.User, message: types.Message):
         )
         db_session.commit()
 
-    _log_command_result(enums.UserCommands.CHECKOUT, db_user.telegram_id, ok, txt)
+    _log_command_result(enums.UserCommands.CHECKOUT, db_user.telegram_id, ok)
     await message.reply(txt)
 
 
@@ -117,7 +114,7 @@ async def cmd_cancel(db_user: db.User, message: types.Message):
         )
         db_session.commit()
 
-    _log_command_result(enums.UserCommands.CANCEL, db_user.telegram_id, ok, txt)
+    _log_command_result(enums.UserCommands.CANCEL, db_user.telegram_id, ok)
     await message.reply(txt)
 
 
@@ -125,11 +122,9 @@ async def cmd_cancel(db_user: db.User, message: types.Message):
 @user_chat_handler(enums.UserCommands.STATUS)
 async def cmd_status(db_user: db.User, message: types.Message):
     with db.SessionLocal() as db_session:
-        txt = user_services.user_status(db_session=db_session, db_user=db_user)
+        ok, txt = user_services.user_status(db_session=db_session, db_user=db_user)
 
-    _log_command_result(
-        enums.UserCommands.STATUS, db_user.telegram_id, True, "Generated"
-    )
+    _log_command_result(enums.UserCommands.STATUS, db_user.telegram_id, ok)
     await message.reply(txt)
 
 
@@ -137,9 +132,9 @@ async def cmd_status(db_user: db.User, message: types.Message):
 @user_chat_handler(enums.UserCommands.EXPIRING)
 async def cmd_expiring(db_user: db.User, message: types.Message):
     with db.SessionLocal() as db_session:
-        txt = user_services.expiring_sessions(db_session=db_session, db_user=db_user)
+        ok, txt = user_services.expiring_sessions(
+            db_session=db_session, db_user=db_user
+        )
 
-    _log_command_result(
-        enums.UserCommands.STATUS, db_user.telegram_id, True, "Generated"
-    )
+    _log_command_result(enums.UserCommands.STATUS, db_user.telegram_id, ok)
     await message.reply(txt)

@@ -1,5 +1,3 @@
-from typing import Tuple
-
 from sqlalchemy.orm import Session
 
 import src.db as db
@@ -18,101 +16,121 @@ def _reservation_locked_message(lock_state: models.ReservationLockState) -> str:
     return f"Reservations are locked. Reason: {lock_state.reason or 'N/A'}"
 
 
-def create_reservation(*, db_session: Session, db_user: db.User) -> Tuple[bool, str]:
+def create_reservation(
+    *, db_session: Session, db_user: db.User
+) -> models.CommandResult:
     lock_state = db_repo.get_reservation_lock_state(db_session=db_session)
     if lock_state.is_locked:
-        return False, _reservation_locked_message(lock_state)
+        return models.CommandResult(
+            success=False, message=_reservation_locked_message(lock_state)
+        )
 
     now = utils.utc_now()
     if db_user.block_until and db_user.block_until > now:
         duration = utils.humanize_time(db_user.block_until)
-        return False, t("reserve.blocked", duration=duration)
+        return models.CommandResult(
+            success=False, message=t("reserve.blocked", duration=duration)
+        )
 
     active_reservation = db_repo.get_user_reservation(
         db_session=db_session, user_id=db_user.id
     )
     if active_reservation:
-        return False, t(
-            "reserve.active_exists", state=active_reservation.state.value.capitalize()
+        return models.CommandResult(
+            success=False,
+            message=t(
+                "reserve.active_exists",
+                state=active_reservation.state.value.capitalize(),
+            ),
         )
 
     checked_in, reserved = db_repo.get_occupancy_stats(db_session=db_session)
     if checked_in + reserved >= CONFIG.capacity:
-        return False, t("reserve.capacity_full")
+        return models.CommandResult(success=False, message=t("reserve.capacity_full"))
 
     db_repo.create_reservation(db_session=db_session, user=db_user)
     msg = t("reserve.success", minutes=CONFIG.reserve_window_minutes)
-    return True, msg
+    return models.CommandResult(success=True, message=msg)
 
 
-def checkin_reservation(*, db_session: Session, db_user: db.User) -> Tuple[bool, str]:
+def checkin_reservation(
+    *, db_session: Session, db_user: db.User
+) -> models.CommandResult:
     lock_state = db_repo.get_reservation_lock_state(db_session=db_session)
     if lock_state.is_locked:
-        return False, _reservation_locked_message(lock_state)
+        return models.CommandResult(
+            success=False, message=_reservation_locked_message(lock_state)
+        )
 
     now = utils.utc_now()
     if db_user.block_until and db_user.block_until > now:
         duration = utils.humanize_time(db_user.block_until)
-        return False, t("reserve.blocked", duration=duration)
+        return models.CommandResult(
+            success=False, message=t("reserve.blocked", duration=duration)
+        )
 
     active_reservation = db_repo.get_user_reservation(
         db_session=db_session, user_id=db_user.id
     )
     if not active_reservation:
-        return False, t("checkin.no_reservation")
+        return models.CommandResult(success=False, message=t("checkin.no_reservation"))
 
     if active_reservation.state != enums.ReservationState.RESERVED:
-        return False, t("checkin.no_active")
+        return models.CommandResult(success=False, message=t("checkin.no_active"))
 
     if active_reservation.reservation_expiry_time < now:
-        return False, t("checkin.expired")
+        return models.CommandResult(success=False, message=t("checkin.expired"))
 
     checked_in, reserved = db_repo.get_occupancy_stats(db_session=db_session)
     if checked_in + reserved >= CONFIG.capacity:
-        return False, t("reserve.capacity_full")
+        return models.CommandResult(success=False, message=t("reserve.capacity_full"))
 
     db_repo.checkin_reservation(
         db_session=db_session, reservation_id=active_reservation.id
     )
     msg = t("checkin.success", minutes=CONFIG.session_duration_minutes)
-    return True, msg
+    return models.CommandResult(success=True, message=msg)
 
 
-def checkout_reservation(*, db_session: Session, db_user: db.User) -> Tuple[bool, str]:
+def checkout_reservation(
+    *, db_session: Session, db_user: db.User
+) -> models.CommandResult:
     # Checkout shouldn't check the global lock state
     active_reservation = db_repo.get_user_reservation(
         db_session=db_session, user_id=db_user.id
     )
     if not active_reservation:
-        return False, t("checkout.no_reservation")
+        return models.CommandResult(success=False, message=t("checkout.no_reservation"))
 
     if active_reservation.state != enums.ReservationState.CHECKED_IN:
-        return False, t("checkout.not_checked_in")
+        return models.CommandResult(success=False, message=t("checkout.not_checked_in"))
 
     db_repo.checkout_reservation(
         db_session=db_session, reservation_id=active_reservation.id
     )
-    return True, t("checkout.success")
+    return models.CommandResult(success=True, message=t("checkout.success"))
 
 
-def cancel_reservation(*, db_session: Session, db_user: db.User) -> Tuple[bool, str]:
+def cancel_reservation(
+    *, db_session: Session, db_user: db.User
+) -> models.CommandResult:
     # Cancel shouldn't check the global lock state
     active_reservation = db_repo.get_user_reservation(
         db_session=db_session, user_id=db_user.id
     )
     if not active_reservation:
-        return False, t("cancel.no_reservation")
+        return models.CommandResult(success=False, message=t("cancel.no_reservation"))
 
     if active_reservation.state != enums.ReservationState.RESERVED:
-        return False, t("cancel.no_active")
+        return models.CommandResult(success=False, message=t("cancel.no_active"))
 
     db_repo.cancel_reservation(
         db_session=db_session, reservation_id=active_reservation.id
     )
-    return True, t("cancel.success")
+    return models.CommandResult(success=True, message=t("cancel.success"))
 
 
-def user_status(*, db_session: Session, db_user: db.User) -> str:
+def user_status(*, db_session: Session, db_user: db.User) -> models.CommandResult:
     locked_state = db_repo.get_reservation_lock_state(db_session=db_session)
     if locked_state.is_locked:
         msg = t("status.locked_prefix", reason=locked_state.reason) + "\n"
@@ -124,7 +142,7 @@ def user_status(*, db_session: Session, db_user: db.User) -> str:
     msg = f"Occupancy: {total_count} out of {CONFIG.capacity}\nChecked In: {checked_in}\nReservations: {reserved}\n"
 
     active_reservation = db_repo.get_user_reservation(
-        db_session=db_session, user_id=db_user.telegram_id
+        db_session=db_session, user_id=db_user.id
     )
     if active_reservation:
         msg += f"Your Status: {active_reservation.state}"
@@ -146,10 +164,10 @@ def user_status(*, db_session: Session, db_user: db.User) -> str:
             "status.blocked", duration=utils.humanize_time(db_user.block_until)
         )
 
-    return msg
+    return models.CommandResult(success=True, message=msg)
 
 
-def expiring_sessions(*, db_session: Session, db_user: db.User) -> str:
+def expiring_sessions(*, db_session: Session, db_user: db.User) -> models.CommandResult:
     active_reservations = db_repo.get_active_reservations(db_session=db_session)
     reserved_sessions = list(
         filter(
@@ -182,6 +200,8 @@ def expiring_sessions(*, db_session: Session, db_user: db.User) -> str:
             lines.append(f"- {utils.format_user(user)} - {duration_left}")
 
     if not lines:
-        return "No active sessions"
+        msg = "No active sessions"
+    else:
+        msg = "\n".join(lines)
 
-    return "\n".join(lines)
+    return models.CommandResult(success=True, message=msg)

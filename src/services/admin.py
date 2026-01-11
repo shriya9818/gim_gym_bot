@@ -1,8 +1,3 @@
-import re
-from datetime import datetime, timedelta
-from typing import Optional, Tuple
-
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 import src.db as db
@@ -13,36 +8,8 @@ import src.utils as utils
 from src.config import CONFIG
 from src.strings import t
 
-from ..storage import (
-    count_no_shows,
-    count_overstays,
-    get_reservation_lock,
-    set_reservation_lock,
-)
 
-
-def _resolve_user(db, identifier: str) -> Optional[db.User]:
-    if not identifier:
-        return None
-    ident = identifier.strip()
-    if not ident:
-        return None
-    if ident.startswith("@"):
-        handle = ident[1:].lower()
-        stmt = select(User).where(func.lower(User.username) == handle)
-        return db.execute(stmt).scalars().first()
-    try:
-        tid = int(ident)
-    except ValueError:
-        return get_user_by_roll_number(db, ident)
-    stmt = select(User).where(User.telegram_id == tid)
-    user = db.execute(stmt).scalars().first()
-    if user:
-        return user
-    return get_user_by_roll_number(db, ident)
-
-
-def summarize(*, db_session: Session) -> str:
+def summarize(*, db_session: Session) -> models.CommandResult:
     active_reservations = db_repo.get_active_reservations(db_session=db_session)
     reserved_sessions = list(
         filter(
@@ -78,200 +45,153 @@ def summarize(*, db_session: Session) -> str:
 
     lock_state = db_repo.get_reservation_lock_state(db_session=db_session)
     if lock_state.is_locked:
-        lines.append("\nReservations locked: {lock_state.reason}")
+        lines.append(f"\nReservations locked: {lock_state.reason}")
 
-    return "\n".join(lines)
+    return models.CommandResult(success=True, message="\n".join(lines))
 
 
-def lock_reservations(*, db_session: Session, reason: str) -> str:
-    with SessionLocal() as db:
-        state = set_reservation_lock(
-            db,
-            locked=True,
-            reason=reason or "Reservations temporarily unavailable.",
-            locked_by=admin_id,
-            timestamp=datetime.utcnow(),
+def lock_reservations(
+    *, db_session: Session, name: str, reason: str
+) -> models.CommandResult:
+    current_reservation_state = db_repo.get_reservation_lock_state(
+        db_session=db_session
+    )
+    if current_reservation_state.is_locked:
+        return models.CommandResult(
+            success=False,
+            message=t(
+                "lock.already_locked",
+                locked_by=current_reservation_state.locked_by,
+                reason=current_reservation_state.reason,
+            ),
         )
-        return f"Reservations locked. Reason: {_reservation_locked_message(state)}"
 
-
-def add_admin(identifier: str) -> tuple[bool, str]:
-    """Grant admin role to an existing user (or numeric telegram id)."""
-    with SessionLocal() as db:
-        user = _resolve_user(db, str(identifier))
-        if not user:
-            return False, t("errors.invalid_identifier")
-        if user.telegram_id in (CONFIG.super_users or []):
-            return True, "User is already a super-admin."
-        user.is_admin = True
-        db.add(user)
-        db.commit()
-        return True, f"{_format_user(user)} promoted to admin."
-
-
-def remove_admin(identifier: str) -> tuple[bool, str]:
-    with SessionLocal() as db:
-        user = _resolve_user(db, str(identifier))
-        if not user:
-            return False, "User not found."
-        if user.telegram_id in (CONFIG.super_users or []):
-            return False, "Cannot revoke a configured super-admin."
-        user.is_admin = False
-        db.add(user)
-        db.commit()
-        return True, f"{_format_user(user)} admin access revoked."
-
-
-def list_admins() -> list[str]:
-    out: list[str] = []
-    for su in CONFIG.super_users or []:
-        out.append(f"super:{su}")
-    with SessionLocal() as db:
-        stmt = select(User).where(User.is_admin == True)
-        rows = db.execute(stmt).scalars().all()
-        for u in rows:
-            out.append(f"{u.telegram_id}:{u.username or u.full_name or ''}")
-    return out
-
-
-def invite_user(
-    roll_number: str,
-    *,
-    full_name: Optional[str] = None,
-    telegram_id: Optional[int] = None,
-    username: Optional[str] = None,
-) -> tuple[bool, str]:
-    roll = roll_number.strip()
-    if not roll:
-        return False, t("admin.invite_roll_required")
-    with SessionLocal() as db:
-        existing = get_user_by_roll_number(db, roll)
-        if existing:
-            return False, t("admin.invite_exists")
-        create_invited_user(
-            db,
-            roll_number=roll,
-            username=username,
-            full_name=full_name,
-            telegram_id=telegram_id,
+    if len(reason) < 5:
+        return models.CommandResult(
+            success=False, message=t("lock.reason_short", reason=reason)
         )
-        display_name = full_name or username or roll
-        return True, t("admin.invite_success", name=display_name, roll_number=roll)
+
+    reservation_state = models.ReservationLockState(
+        is_locked=True, reason=reason, locked_by=name
+    )
+
+    db_repo.add_reservation_lock(db_session=db_session, lock_state=reservation_state)
+    return models.CommandResult(
+        success=True, message=t("lock.lock_success", reason=reason, locked_by=name)
+    )
 
 
-def user_report(identifier: str) -> Tuple[bool, str]:
-    with SessionLocal() as db:
-        user = _resolve_user(db, identifier)
-        if not user:
-            return False, "User not found or has never interacted with the bot."
-        active = get_active_session(db, user)
-        checked_in = "None"
-        if active:
-            if active.state == ReservationState.CHECKED_IN:
-                checked_in = (
-                    f"checked in; auto-checkout {_humanize(active.auto_checkout_at)}"
-                )
-            elif active.state == ReservationState.RESERVED:
-                checked_in = f"reserved; expires {_humanize(active.reserve_expires_at)}"
-            else:
-                checked_in = active.state.value.lower()
-        block = (
-            f"blocked {_humanize(user.block_until)}"
-            if user.block_until and user.block_until > datetime.utcnow()
-            else "active"
+def unlock_reservations(*, db_session: Session) -> models.CommandResult:
+    current_reservation_state = db_repo.get_reservation_lock_state(
+        db_session=db_session
+    )
+    if not current_reservation_state.is_locked:
+        return models.CommandResult(success=False, message=t("lock.not_locked"))
+
+    db_repo.remove_reservation_lock(db_session=db_session)
+    return models.CommandResult(success=True, message=t("lock.unlock_success"))
+
+
+def _get_user_by_identifier(db_session: Session, identifier: str) -> db.User | None:
+    user_by_roll_number = db_repo.get_user(
+        db_session=db_session, roll_number=identifier
+    )
+    if user_by_roll_number:
+        return user_by_roll_number
+
+    user_by_phone_number = db_repo.get_user(
+        db_session=db_session, phone_number=identifier
+    )
+    if user_by_phone_number:
+        return user_by_phone_number
+
+    return None
+
+
+def promote_user(*, db_session: Session, identifier: str) -> models.CommandResult:
+    """Grant admin role to an existing user"""
+    if len(identifier.strip()) < 5:
+        return models.CommandResult(
+            success=False, message=t("errors.too_short_identifier")
         )
-        stmt = (
-            select(func.count())
-            .select_from(SessionModel)
-            .where(SessionModel.user_id == user.id)
+
+    db_user = _get_user_by_identifier(db_session, identifier)
+    if not db_user:
+        return models.CommandResult(
+            success=False, message=t("errors.invalid_identifier")
         )
-        total_sessions = db.execute(stmt).scalar_one()
-        msg = (
-            f"User: {_format_user(user)}\n"
-            f"Status: {block}\n"
-            f"No-shows: {count_no_shows(db, user)}, Overstays: {count_overstays(db, user)}\n"
-            f"Total records: {total_sessions}\n"
-            f"Current session: {checked_in}"
+
+    if db_user.is_admin:
+        return models.CommandResult(success=False, message=t("promote.already_admin"))
+
+    db_repo.promote_user(db_session=db_session, user_id=db_user.id)
+    return models.CommandResult(success=True, message=t("promote.promote_success"))
+
+
+def demote_user(*, db_session: Session, identifier: str) -> models.CommandResult:
+    """Revoke admin role from an existing user"""
+    if len(identifier.strip()) < 5:
+        return models.CommandResult(
+            success=False, message=t("errors.too_short_identifier")
         )
-        return True, msg
 
-
-def force_checkout_user(identifier: str) -> Tuple[bool, str]:
-    now = datetime.utcnow()
-    with SessionLocal() as db:
-        user = _resolve_user(db, identifier)
-        if not user:
-            return False, t("errors.invalid_identifier")
-        active = get_active_session(db, user)
-        if not active:
-            return False, "User has no active reservation or session."
-        if active.state == ReservationState.RESERVED:
-            active.state = ReservationState.EXPIRED
-            active.reserve_expires_at = now
-            db.add(active)
-            db.commit()
-            return True, f"Reservation for {_format_user(user)} has been cancelled."
-        checkout_session(db, active, now)
-        return True, f"{_format_user(user)} has been checked out."
-
-
-def block_user(identifier: str, duration_text: str) -> Tuple[bool, str]:
-    duration = _parse_duration(duration_text)
-    if not duration:
-        return False, t("errors.invalid_duration")
-    with SessionLocal() as db:
-        user = _resolve_user(db, identifier)
-        if not user:
-            return False, t("errors.invalid_identifier")
-        until = datetime.utcnow() + duration
-        user.block_until = until
-        db.add(user)
-        db.commit()
-        return True, f"{_format_user(user)} blocked {_humanize(until)}."
-
-
-def unblock_user(identifier: str) -> Tuple[bool, str]:
-    with SessionLocal() as db:
-        user = _resolve_user(db, identifier)
-        if not user:
-            return False, t("errors.invalid_identifier")
-        user.block_until = None
-        db.add(user)
-        db.commit()
-        return True, f"{_format_user(user)} is now unblocked."
-
-
-def kick_everyone_out() -> str:
-    now = datetime.utcnow()
-    with SessionLocal() as db:
-        checked_in_sessions = (
-            db.execute(
-                select(SessionModel).where(
-                    SessionModel.state == ReservationState.CHECKED_IN
-                )
-            )
-            .scalars()
-            .all()
+    db_user = _get_user_by_identifier(db_session, identifier)
+    if not db_user:
+        return models.CommandResult(
+            success=False, message=t("errors.invalid_identifier")
         )
-        reserved_sessions = (
-            db.execute(
-                select(SessionModel).where(
-                    SessionModel.state == ReservationState.RESERVED
-                )
-            )
-            .scalars()
-            .all()
+
+    if not db_user.is_admin:
+        return models.CommandResult(success=False, message=t("promote.not_an_admin"))
+
+    db_repo.demote_user(db_session=db_session, user_id=db_user.id)
+    return models.CommandResult(success=True, message=t("promote.demote_success"))
+
+
+def list_admins(*, db_session: Session) -> models.CommandResult:
+    out: list[str] = ["List of super admins:"]
+    for su_id in CONFIG.super_users:
+        su_db_user = db_repo.get_user(db_session=db_session, telegram_id=su_id)
+        if su_db_user:
+            out.append(f"{su_db_user.telegram_id}: {su_db_user.full_name}")
+        else:
+            out.append(f"{su_id}: Not registered")
+
+    out.append("")  # Blank line between super admins and admins
+    out.append("List of admins:")
+
+    admins = db_repo.get_admin_users(db_session=db_session)
+    for admin in admins:
+        if utils.is_super_user(admin.telegram_id):
+            continue  # Skip super admins already listed
+
+        out.append(f"{admin.telegram_id}: {admin.full_name}")
+
+    return models.CommandResult(success=True, message="\n".join(out))
+
+
+def user_info(*, db_session: Session, identifier: str) -> models.CommandResult:
+    db_user = _get_user_by_identifier(db_session, identifier)
+    if not db_user:
+        return models.CommandResult(
+            success=False, message=t("errors.invalid_identifier")
         )
-        for sess in checked_in_sessions:
-            sess.state = ReservationState.CHECKED_OUT
-            sess.checkout_time = now
-            db.add(sess)
-        for sess in reserved_sessions:
-            sess.state = ReservationState.EXPIRED
-            sess.reserve_expires_at = now
-            db.add(sess)
-        db.commit()
-        return (
-            f"Force checkout complete. {len(checked_in_sessions)} sessions closed, "
-            f"{len(reserved_sessions)} reservations cancelled."
-        )
+
+    # Current active reservation (if any)
+    active = db_repo.get_user_reservation(db_session=db_session, user_id=db_user.id)
+    status = active.state.value if active else "No active reservation"
+
+    # Total historical sessions
+    all_reservations = db_repo.get_reservations_stats(
+        db_session=db_session, user_id=db_user.id
+    )
+
+    lines = (
+        f"User: {utils.format_user(db_user)}",
+        f"No-shows: {all_reservations.no_shows}",
+        f"Overstays: {all_reservations.overstays}",
+        f"Total reservations: {all_reservations.total_reservations}",
+        f"Current Status: {status}",
+    )
+
+    return models.CommandResult(success=True, message="\n".join(lines))

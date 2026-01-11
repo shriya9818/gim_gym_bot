@@ -1,4 +1,9 @@
-from enum import StrEnum
+from enum import Enum
+
+
+class StrEnum(str, Enum):
+    def __str__(self) -> str:
+        return self.value
 
 
 class ReservationState(StrEnum):
@@ -32,6 +37,11 @@ class UserCommands(StrEnum):
 
 
 class AdminCommands(StrEnum):
+    ADMIN_HELP = "admin-help"
     SUMMARY = "summary"
     LOCK = "lock"
     UNLOCK = "unlock"
+    PROMOTE = "promote"
+    DEMOTE = "demote"
+    ADMINS = "admins"
+    USER = "user"
