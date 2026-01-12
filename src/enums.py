@@ -45,3 +45,9 @@ class AdminCommands(StrEnum):
     DEMOTE = "demote"
     ADMINS = "admins"
     USER = "user"
+
+
+class QRCodeActions(StrEnum):
+    CHECKIN = "checkin"
+    CHECKOUT = "checkout"
+    RESERVE = "reserve"

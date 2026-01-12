@@ -3,12 +3,14 @@ from functools import wraps
 
 from aiogram import Router, types
 from aiogram.filters import Command
+from sqlalchemy.orm import Session
 
 import src.db as db
 import src.enums as enums
 import src.repo as db_repo
 import src.services.user as user_services
 import src.utils as utils
+from src.config import CONFIG
 from src.logger import logger
 from src.strings import t
 
@@ -60,10 +62,40 @@ def _log_command_result(command: enums.UserCommands, user_id: int, ok: bool):
     )
 
 
-@router.message(Command(enums.UserCommands.HELP))
-@user_chat_handler(enums.UserCommands.HELP)
-async def cmd_help(_, message: types.Message):
-    await message.reply(t("messages.help"))
+async def handle_qr_code(
+    *,
+    db_session: Session,
+    db_user: db.User,
+    message: types.Message,
+    action: enums.QRCodeActions,
+) -> str:
+    print(action)
+    match action:
+        case enums.QRCodeActions.CHECKIN:
+            result = user_services.checkin_reservation(
+                db_session=db_session, db_user=db_user
+            )
+            action_str = "checked in"
+        case enums.QRCodeActions.CHECKOUT:
+            result = user_services.checkout_reservation(
+                db_session=db_session, db_user=db_user
+            )
+            action_str = "checked out"
+        case enums.QRCodeActions.RESERVE:
+            result = user_services.create_reservation(
+                db_session=db_session, db_user=db_user
+            )
+            action_str = "reserved a slot"
+
+    if result.success:
+        assert message.bot is not None, "Bot instance is None in message"
+        # Send a message to main group about user action
+        await message.bot.send_message(
+            CONFIG.gym_group_id,
+            f"User {db_user.full_name} ({db_user.roll_number}) {action_str} via QR Code.",
+        )
+
+    return result.message
 
 
 @router.message(Command(enums.UserCommands.RESERVE))
